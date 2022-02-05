@@ -3,16 +3,17 @@ resource "aws_lb" "swapi_apollo_federation_alb" {
   name               = "swapi-apollo-federation-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.lb_sg.id]
-  subnets            = [for subnet in aws_subnet.public : subnet.id]
+#   security_groups    = [aws_security_group.lb_sg.id]
+  subnets            = [
+      aws_default_subnet.default_az1.id,
+      aws_default_subnet.default_az2.id,
+  ]
 
-  enable_deletion_protection = true
-
-  access_logs {
-    bucket  = aws_s3_bucket.lb_logs.bucket
-    prefix  = "swapi-apollo-federation-alb"
-    enabled = true
-  }
+#   access_logs {
+#     bucket  = aws_s3_bucket.lb_logs.bucket
+#     prefix  = "swapi-apollo-federation-alb"
+#     enabled = true
+#   }
 }
 
 # Target group for ALB is the Apollo Federation Gateway Lambda.
@@ -27,10 +28,8 @@ resource "aws_lb_target_group" "gateway_lambda" {
 # to tell it what types of requests we want to listen to.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.swapi_apollo_federation_alb.arn
-  port              = "443" // Allowing traffic for HTTPS, meaning port 443.
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-2016-08"
-  certificate_arn   = "arn:aws:iam::187416307283:server-certificate/test_cert_rab3wuqwgja25ct3n4jdj2tzu4"
+  port              = "80" // Allowing traffic for HTTP, meaning port 80.
+  protocol          = "HTTP" // Choosing HTTP to not set up certificate 
 
   default_action {
     type             = "forward"
@@ -50,8 +49,9 @@ resource "aws_lb_listener_rule" "static" {
   }
 
   condition {
-    field  = "path-pattern"
-    values = ["/static/*"]
+    path_pattern {
+      values = ["/static/*"]
+    }
   }
 }
 
@@ -67,6 +67,42 @@ resource "aws_lambda_permission" "with_lb" {
 
 resource "aws_lb_target_group_attachment" "lambda_attachment" {
   target_group_arn = aws_lb_target_group.gateway_lambda.arn
-  target_id        = ""
+  target_id        = "arn:aws:lambda:eu-west-2:635567262396:function:swapi-apollo-federation-gateway-dev-lambda"
   depends_on       = [aws_lambda_permission.with_lb]
+}
+
+
+# Using the AWS defult provided VPC & subnets
+resource "aws_default_subnet" "default_az1" {
+  availability_zone = "eu-west-2a"
+
+  tags = {
+    Name = "Default subnet for eu-west-2a"
+  }
+}
+
+resource "aws_default_subnet" "default_az2" {
+  availability_zone = "eu-west-2b"
+
+  tags = {
+    Name = "Default subnet for eu-west-2b"
+  }
+}
+#--------------------------------------------------------------
+# Security Group
+#--------------------------------------------------------------
+resource "aws_security_group" "http" {
+  name        = "allow_http"
+  description = "Allow HTTP"
+
+  ingress {
+    description      = "HTTP"
+    from_port        = 80
+    to_port          = 80
+    protocol         = "tcp"
+  }
+
+  tags = {
+    Name = "Allow HTTP"
+  }
 }
